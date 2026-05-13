@@ -1,56 +1,47 @@
--- Giải pháp SQL hoàn chỉnh
-
--- 1. KHỞI TẠO DỮ LIỆU MẪU (Từ ảnh)
-
+-- 1. Thiết kế luồng dữ liệu (Tạo bảng & Dữ liệu mẫu)Đầu tiên, chúng ta cần khởi tạo 3 bảng tương ứng. Bảng Invoices sẽ đóng vai trò là bảng trung gian kết nối giữa Departments và Patients.SQL-- 1. Bảng Khoa
 CREATE TABLE Departments (
     Dept_ID INT PRIMARY KEY,
     Dept_Name VARCHAR(100)
 );
 
+-- 2. Bảng Bệnh nhân 
+CREATE TABLE Patients (
+    Patient_ID INT PRIMARY KEY,
+    Patient_Name VARCHAR(100)
+);
+
+-- 3. Bảng Hóa đơn 
 CREATE TABLE Invoices (
     Invoice_ID INT PRIMARY KEY,
     Patient_ID INT,
     Dept_ID INT,
-    Amount DECIMAL(10, 2)
+    Amount DECIMAL(10, 2),
+    FOREIGN KEY (Dept_ID) REFERENCES Departments(Dept_ID),
+    FOREIGN KEY (Patient_ID) REFERENCES Patients(Patient_ID)
 );
 
-INSERT INTO Departments VALUES 
-(1, 'Nội'), 
-(2, 'Ngoại');
-
+-- Chèn dữ liệu mẫu để kiểm thử
+INSERT INTO Departments VALUES (1, 'Nội'), (2, 'Ngoại');
+INSERT INTO Patients VALUES (1, 'Nguyễn Văn A'), (2, 'Trần Thị B'), (3, 'Lê Văn C');
 INSERT INTO Invoices VALUES 
-(101, 1, 1, 500.00), 
-(102, 2, 1, 300.00), 
-(103, 3, 2, 1000.00);
-
-
--- 2. TẠO VIEW BÁO CÁO (Gom nhóm & Kết nối 3 bảng)
-
-CREATE VIEW Department_Revenue_View AS
+    (101, 1, 1, 500.00),  -- Bệnh nhân A, khoa Nội
+    (102, 2, 1, 300.00),  -- Bệnh nhân B, khoa Nội
+    (103, 3, 2, 1000.00); -- Bệnh nhân C, khoa Ngoại
+-- 2. Tạo View báo cáo (Department_Revenue_View)View này sẽ JOIN cả 3 bảng lại với nhau. Việc sử dụng COUNT(DISTINCT p.Patient_ID) đảm bảo rằng nếu một bệnh nhân có nhiều hóa đơn tại cùng một khoa thì họ vẫn chỉ được đếm là 1.SQLCREATE VIEW Department_Revenue_View AS
 SELECT 
-    d.Dept_Name AS Ten_Khoa,
-    -- Dùng COUNT(DISTINCT) để đếm số lượng bệnh nhân thực tế, tránh đếm trùng nếu 1 người có 2 hóa đơn
-    COUNT(DISTINCT p.Patient_ID) AS Tong_So_Benh_Nhan, 
-    SUM(i.Amount) AS Tong_Doanh_Thu
-FROM Departments d
-JOIN Invoices i ON d.Dept_ID = i.Dept_ID
-JOIN Patients p ON i.Patient_ID = p.Patient_ID
-GROUP BY d.Dept_ID, d.Dept_Name;
+    d.Dept_Name AS 'Tên Khoa',
+    COUNT(DISTINCT p.Patient_ID) AS 'Tổng số bệnh nhân',
+    SUM(i.Amount) AS 'Tổng doanh thu'
+FROM 
+    Departments d
+JOIN 
+    Invoices i ON d.Dept_ID = i.Dept_ID
+JOIN 
+    Patients p ON i.Patient_ID = p.Patient_ID
+GROUP BY 
+    d.Dept_Name;
+-- 3. Kiểm thử tính toàn vẹnThực hiện truy vấn SELECT:SQLSELECT * FROM Department_Revenue_View;
+-- Kết quả trả về:Tên KhoaTổng số bệnh nhânTổng doanh thuNội 2800.00Ngoại 11000.00Như bạn thấy, thông tin nhạy cảm như Tên bệnh nhân hay Mã bệnh nhân hoàn toàn không xuất hiện trong kết quả này.4. Giả lập hành vi của kế toán (Test UPDATE)Theo lý thuyết về CSDL, bất kỳ View nào có chứa các hàm gộp (SUM, COUNT, MAX, MIN...) hoặc mệnh đề GROUP BY đều không thể cập nhật (Not Updatable).Thử chạy lệnh UPDATE trực tiếp trên View:SQLUPDATE Department_Revenue_View
 
--- 3. KIỂM THỬ TÍNH TOÀN VẸN VÀ BẢO MẬT
--- Bài test 1: Kế toán xem báo cáo (Chỉ thấy số tổng hợp, không thấy dữ liệu thô)
-SELECT * FROM Department_Revenue_View;
-
--- Bài test 2: Giả lập kế toán cố tình sửa số liệu doanh thu trên View
--- Lệnh này sẽ THẤT BẠI và ném ra lỗi.
-UPDATE Department_Revenue_View
-SET Tong_Doanh_Thu = 90000.00
-WHERE Ten_Khoa = 'Nội';
--- Giải thích bản chất kỹ thuật:
---  Luồng thiết kế View:
-
--- Departments JOIN Invoices theo Dept_ID → GROUP BY từng khoa → tính COUNT(DISTINCT Patient_ID) và SUM(Amount)
--- Bảng Patients trong bài toán đầy đủ sẽ JOIN qua Invoices.Patient_ID → Patients.Dept_ID
-
--- Lý do View là Read-only: SQL không thể ánh xạ ngược một giá trị tổng hợp (ví dụ Tổng_doanh_thu = 800) về các dòng cụ thể trong bảng Invoices để sửa. Đây là bảo vệ tự động của hệ quản trị CSDL, không cần thêm bất kỳ trigger hay constraint nào.
--- Lệnh UPDATE sẽ bị từ chối với lỗi ERROR 1288 (HY000) trên MySQL, hoặc thông báo tương tự trên PostgreSQL/SQL Server — xác nhận tính minh bạch của báo cáo.
+SET `Tổng doanh thu` = 5000.00
+WHERE `Tên Khoa` = 'Nội';
